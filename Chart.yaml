@@ -1,0 +1,23 @@
+---
+# SPDX-license-identifier: Apache-2.0
+##############################################################################
+# Copyright (c) 2020
+# All rights reserved. This program and the accompanying materials
+# are made available under the terms of the Apache License, Version 2.0
+# which accompanies this distribution, and is available at
+# http://www.apache.org/licenses/LICENSE-2.0
+##############################################################################
+
+apiVersion: v2
+name: gw-tester
+description: GW Tester
+type: application
+version: 0.0.1
+appVersion: 0.0.1
+dependencies:
+  - name: enb
+    version: 0.0.1
+  - name: mme
+    version: 0.0.1
+  - name: saegw
+    version: 0.0.1
