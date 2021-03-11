@@ -14,7 +14,7 @@ set -o nounset
 
 pkgs=""
 for pkg in helm kubectl git; do
-    if ! command -v "$pkg"; then
+    if ! command -v "$pkg" > /dev/null; then
         pkgs+=" $pkg"
     fi
 done
@@ -32,4 +32,10 @@ if [ ! -d /opt/gw-tester ]; then
     sudo chown -R "$USER:" /opt/gw-tester
 fi
 
-helm install core-network /opt/gw-tester
+if ! helm list -q | grep -q core-network; then
+    helm install core-network /opt/gw-tester
+fi
+
+for deployment in $(kubectl get deployments --no-headers -o custom-columns=name:.metadata.name | grep core-network); do
+    kubectl rollout status "deployment/$deployment" --timeout=5m
+done
