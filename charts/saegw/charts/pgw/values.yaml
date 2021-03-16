@@ -10,17 +10,23 @@
 
 s5u:
   name: lte-s5u
-  network: 172.25.0.0/24
+  networkId: 172.25.0.0
+  networkLength: 24
   interface: s5u1
 s5c:
   name: lte-s5c
-  network: 172.25.1.0/24
+  networkId: 172.25.1.0
+  networkLength: 24
   interface: s5c2
 sgi:
   name: lte-sgi
-  network: 10.0.1.0/24
+  networkId: 10.0.1.0
+  networkLength: 24
   interface: sgi3
   subnet: 10.0.1.0/24
+euu:
+  networkId: 10.0.3.0
+  networkLength: 24
 etcd:
   url: http://lte-etcd.default.svc.cluster.local:12379
 
@@ -29,7 +35,7 @@ replicaCount: 1
 image:
   repository: gwtester/pgw
   pullPolicy: IfNotPresent
-  tag: latest
+  tag: 0.0.3
 
 autoscaling:
   enabled: false

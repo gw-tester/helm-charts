@@ -1,7 +1,7 @@
 ---
 # SPDX-license-identifier: Apache-2.0
 ##############################################################################
-# Copyright (c) 2020
+# Copyright (c) 2021
 # All rights reserved. This program and the accompanying materials
 # are made available under the terms of the Apache License, Version 2.0
 # which accompanies this distribution, and is available at
@@ -26,10 +26,10 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: |
           [
-            { "name": "{{ .Values.s11.name }}", "interface": "{{ .Values.s11.interface }}" },
-            { "name": "{{ .Values.s1u.name }}", "interface": "{{ .Values.s1u.interface }}" },
-            { "name": "{{ .Values.s5u.name }}", "interface": "{{ .Values.s5u.interface }}" },
-            { "name": "{{ .Values.s5c.name }}", "interface": "{{ .Values.s5c.interface }}" }
+            {"name": "{{ .Values.s11.name }}", "interface": "{{ .Values.s11.interface }}"},
+            {"name": "{{ .Values.s1u.name }}", "interface": "{{ .Values.s1u.interface }}"},
+            {"name": "{{ .Values.s5u.name }}", "interface": "{{ .Values.s5u.interface }}"},
+            {"name": "{{ .Values.s5c.name }}", "interface": "{{ .Values.s5c.interface }}"}
           ]
         danm.k8s.io/interfaces: |
           [
@@ -39,6 +39,15 @@ spec:
             {"clusterNetwork":"{{ .Values.s5u.name }}"},
             {"clusterNetwork":"{{ .Values.s5c.name }}"}
           ]
+        ns.networkservicemesh.io/endpoints: |
+          {
+            "name": "lte-network",
+            "networkServices": [
+              {"link": "s1u", "labels": "app=sgw-s1u", "ipaddress": "{{ .Values.s1u.networkId }}/{{ .Values.s1u.networkLength }}"},
+              {"link": "s11", "labels": "app=sgw-s11", "ipaddress": "{{ .Values.s11.networkId }}/{{ .Values.s11.networkLength }}"}
+            ]
+          }
+        ns.networkservicemesh.io: lte-network/{{ .Values.s5u.interface }}?link=s5u,lte-network/{{ .Values.s5c.interface }}?link=s5c
       labels:
         network: epc
         {{- include "sgw.selectorLabels" . | nindent 8 }}
@@ -105,11 +114,17 @@ data:
     s5c_ip=$(ifconfig {{ .Values.s5c.interface }} | awk '/inet addr/{print substr($2,6)}')
     sed -i "s|s5c_ip:.*|s5c_ip: \"${s5c_ip}\"|g" /etc/gw-tester/sgw.yml
 
-    s11_ip=$(ifconfig {{ .Values.s11.interface }} | awk '/inet addr/{print substr($2,6)}')
+    until ip route get {{ .Values.s11.networkId }} | grep -v eth0; do
+        sleep 2
+    done
+    s11_ip=$(ip route get {{ .Values.s11.networkId }} | awk '{ print $NF}')
     curl -s http://lte-etcd.default.svc.cluster.local:12379/v2/keys/sgw_s11_ip -XPUT -d value="$s11_ip" > /dev/null
     sed -i "s|s11_ip:.*|s11_ip: \"${s11_ip}\"|g" /etc/gw-tester/sgw.yml
 
-    s1u_ip=$(ifconfig {{ .Values.s1u.interface }} | awk '/inet addr/{print substr($2,6)}')
+    until ip route get {{ .Values.s1u.networkId }} | grep -v eth0; do
+        sleep 2
+    done
+    s1u_ip=$(ip route get {{ .Values.s1u.networkId }} | awk '{ print $NF}')
     sed -i "s|s1u_ip:.*|s1u_ip: \"${s1u_ip}\"|g" /etc/gw-tester/sgw.yml
 
     ip a

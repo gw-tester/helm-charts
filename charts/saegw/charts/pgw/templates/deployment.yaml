@@ -26,9 +26,9 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: |
           [
-            { "name": "{{ .Values.s5u.name }}", "interface": "{{ .Values.s5u.interface }}" },
-            { "name": "{{ .Values.s5c.name }}", "interface": "{{ .Values.s5c.interface }}" },
-            { "name": "{{ .Values.sgi.name }}", "interface": "{{ .Values.sgi.interface }}" }
+            {"name": "{{ .Values.s5u.name }}", "interface": "{{ .Values.s5u.interface }}"},
+            {"name": "{{ .Values.s5c.name }}", "interface": "{{ .Values.s5c.interface }}"},
+            {"name": "{{ .Values.sgi.name }}", "interface": "{{ .Values.sgi.interface }}"}
           ]
         danm.k8s.io/interfaces: |
           [
@@ -37,6 +37,15 @@ spec:
             {"clusterNetwork":"{{ .Values.s5c.name }}"},
             {"clusterNetwork":"{{ .Values.sgi.name }}"}
           ]
+        ns.networkservicemesh.io/endpoints: |
+          {
+            "name": "lte-network",
+            "networkServices": [
+              {"link": "sgi", "labels": "app=http-server-sgi", "ipaddress": "{{ .Values.sgi.networkId }}/{{ .Values.sgi.networkLength }}", "route": "{{ .Values.euu.networkId }}/{{ .Values.euu.networkLength }}"},
+              {"link": "s5u", "labels": "app=pgw-s5u", "ipaddress": "{{ .Values.s5u.networkId }}/{{ .Values.s5u.networkLength }}"},
+              {"link": "s5c", "labels": "app=pgw-s5c", "ipaddress": "{{ .Values.s5c.networkId }}/{{ .Values.s5c.networkLength }}"}
+            ]
+          }
       labels:
         network: pdn
         {{- include "pgw.selectorLabels" . | nindent 8 }}
@@ -59,9 +68,9 @@ spec:
             - name: LOG_LEVEL
               value: debug
             - name: S5U_NETWORK
-              value: "{{ .Values.s5u.network }}"
+              value: "{{ .Values.s5u.networkId }}/{{ .Values.s5u.networkLength }}"
             - name: S5C_NETWORK
-              value: "{{ .Values.s5c.network }}"
+              value: "{{ .Values.s5c.networkId }}/{{ .Values.s5c.networkLength }}"
             - name: SGI_NIC
               value: "{{ .Values.sgi.interface }}"
             - name: SGI_SUBNET

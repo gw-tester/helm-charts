@@ -1,7 +1,7 @@
 ---
 # SPDX-license-identifier: Apache-2.0
 ##############################################################################
-# Copyright (c) 2020
+# Copyright (c) 2021
 # All rights reserved. This program and the accompanying materials
 # are made available under the terms of the Apache License, Version 2.0
 # which accompanies this distribution, and is available at
@@ -26,9 +26,9 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: |
           [
-            { "name": "{{ .Values.euu.name }}", "interface": "{{ .Values.euu.interface }}" },
-            { "name": "{{ .Values.s1c.name }}", "interface": "{{ .Values.s1c.interface }}" },
-            { "name": "{{ .Values.s1u.name }}", "interface": "{{ .Values.s1u.interface }}" }
+            {"name": "{{ .Values.euu.name }}", "interface": "{{ .Values.euu.interface }}"},
+            {"name": "{{ .Values.s1c.name }}", "interface": "{{ .Values.s1c.interface }}"},
+            {"name": "{{ .Values.s1u.name }}", "interface": "{{ .Values.s1u.interface }}"}
           ]
         danm.k8s.io/interfaces: |
           [
@@ -37,6 +37,14 @@ spec:
             {"clusterNetwork":"{{ .Values.s1c.name }}"},
             {"clusterNetwork":"{{ .Values.s1u.name }}"}
           ]
+        ns.networkservicemesh.io/endpoints: |
+          {
+            "name": "lte-network",
+            "networkServices": [
+              {"link": "euu", "labels": "app=enb-euu", "ipaddress": "{{ .Values.euu.networkId }}/{{ .Values.euu.networkLength }}", "route": "{{ .Values.sgi.networkId }}/{{ .Values.sgi.networkLength }}"}
+            ]
+          }
+        ns.networkservicemesh.io: lte-network/{{ .Values.s1c.interface }}?link=s1c,lte-network/{{ .Values.s1u.interface }}?link=s1u
       labels:
         network: e-utran
         {{- include "enb.selectorLabels" . | nindent 8 }}
@@ -124,10 +132,13 @@ data:
     s1u_ip=$(ifconfig {{ .Values.s1u.interface }} | awk '/inet addr/{print substr($2,6)}')
     sed -i "s|  s1u_ip:.*|  s1u_ip: \"${s1u_ip}\"|g" /etc/gw-tester/enb.yml
 
-    euu_if="{{ .Values.euu.interface }}"
+    until ip route get {{ .Values.euu.networkId }} | grep -v eth0; do
+        sleep 2
+    done
+    euu_if=$(ip route get {{ .Values.euu.networkId }} | awk '{ print $5}')
     sed -i '/subscribers:/,$d' /etc/gw-tester/enb.yml
     echo "subscribers:" >> /etc/gw-tester/enb.yml
-    euu_ip=$(ifconfig $euu_if | awk '/inet addr/{print substr($2,6)}')
+    euu_ip=$(ip route get {{ .Values.euu.networkId }} | awk '{ print $NF}')
     for i in $(seq 0 254); do
         if [ "10.0.3.$i" != "$euu_ip" ]; then
             format_num=$(printf "%03i" $i)

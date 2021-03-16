@@ -10,16 +10,24 @@
 
 s1c:
   name: lte-s1c
-  network: 172.21.1.0/24
+  networkId: 172.21.1.0
+  networkLength: 24
   interface: s1c2
 s1u:
   name: lte-s1u
-  network: 172.21.0.0/24
+  networkId: 172.21.0.0
+  networkLength: 24
   interface: s1u3
 euu:
   name: lte-euu
-  network: 10.0.3.0/24
+  networkId: 10.0.3.0
+  networkLength: 24
   interface: euu1
+sgi:
+  name: lte-sgi
+  networkId: 10.0.1.0
+  networkLength: 24
+
 
 replicaCount: 1
 

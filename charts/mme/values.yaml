@@ -10,11 +10,13 @@
 
 s11:
   name: lte-s11
-  network: 172.22.0.0/24
+  networkId: 172.22.0.0
+  networkLength: 24
   interface: s111
 s1c:
   name: lte-s1c
-  network: 172.21.1.0/24
+  networkId: 172.21.1.0
+  networkLength: 24
   interface: s1c2
 
 replicaCount: 1

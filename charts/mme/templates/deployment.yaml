@@ -1,7 +1,7 @@
 ---
 # SPDX-license-identifier: Apache-2.0
 ##############################################################################
-# Copyright (c) 2020
+# Copyright (c) 2021
 # All rights reserved. This program and the accompanying materials
 # are made available under the terms of the Apache License, Version 2.0
 # which accompanies this distribution, and is available at
@@ -24,17 +24,25 @@ spec:
   template:
     metadata:
       annotations:
+        k8s.v1.cni.cncf.io/networks: |
+          [
+            {"name": "{{ .Values.s11.name }}", "interface": "{{ .Values.s11.interface }}"},
+            {"name": "{{ .Values.s1c.name }}", "interface": "{{ .Values.s1c.interface }}"}
+          ]
         danm.k8s.io/interfaces: |
           [
             {"clusterNetwork":"default"},
             {"clusterNetwork":"{{ .Values.s11.name }}"},
             {"clusterNetwork":"{{ .Values.s1c.name }}"}
           ]
-        k8s.v1.cni.cncf.io/networks: |
-          [
-            { "name": "{{ .Values.s11.name }}", "interface": "{{ .Values.s11.interface }}" },
-            { "name": "{{ .Values.s1c.name }}", "interface": "{{ .Values.s1c.interface }}" }
-          ]
+        ns.networkservicemesh.io/endpoints: |
+          {
+            "name": "lte-network",
+            "networkServices": [
+              {"link": "s1c", "labels": "app=mme-s1c", "ipaddress": "{{ .Values.s1c.networkId }}/{{ .Values.s1c.networkLength }}"}
+            ]
+          }
+        ns.networkservicemesh.io: lte-network/{{ .Values.s11.interface }}?link=s11
       labels:
         network: epc
         {{- include "mme.selectorLabels" . | nindent 8 }}
@@ -114,7 +122,10 @@ data:
     s11_ip=$(ifconfig s111 | awk '/inet addr/{print substr($2,6)}')
     sed -i "s|  s11_ip:.*|  s11_ip: \"${s11_ip}\"|g" /etc/gw-tester/mme.yml
 
-    s1c_ip=$(ifconfig {{ .Values.s1c.interface }} | awk '/inet addr/{print substr($2,6)}')
+    until ip route get {{ .Values.s1c.networkId }} | grep -v eth0; do
+        sleep 2
+    done
+    s1c_ip=$(ip route get {{ .Values.s1c.networkId }} | awk '{ print $NF}')
     curl -s http://lte-etcd.default.svc.cluster.local:12379/v2/keys/mme_s1c_ip -XPUT -d value="$s1c_ip" > /dev/null
     sed -i "s|  s1c_addr:.*|  s1c_addr: \"${s1c_ip}:36412\"|g" /etc/gw-tester/mme.yml
 
