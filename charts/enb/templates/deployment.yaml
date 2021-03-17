@@ -120,25 +120,25 @@ data:
     fi
     sed -i "s|mme_addr:.*|mme_addr: \"${mme_s1c_ip}:36412\"|g" /etc/gw-tester/enb.yml
 
-    until ip add show {{ .Values.s1c.interface }} > /dev/null ; do
+    until ip a s {{ .Values.s1c.interface }} > /dev/null ; do
         sleep 2
     done
     s1c_ip=$(ifconfig {{ .Values.s1c.interface }} | awk '/inet addr/{print substr($2,6)}')
     sed -i "s|  s1c_ip:.*|  s1c_ip: \"${s1c_ip}\"|g" /etc/gw-tester/enb.yml
 
-    until ip add show {{ .Values.s1u.interface }} > /dev/null ; do
+    until ip a s {{ .Values.s1u.interface }} > /dev/null ; do
         sleep 2
     done
     s1u_ip=$(ifconfig {{ .Values.s1u.interface }} | awk '/inet addr/{print substr($2,6)}')
     sed -i "s|  s1u_ip:.*|  s1u_ip: \"${s1u_ip}\"|g" /etc/gw-tester/enb.yml
 
-    until ip route get {{ .Values.euu.networkId }} | grep -v eth0; do
+    until ip r g {{ .Values.euu.networkId }} | grep -v eth0; do
         sleep 2
     done
-    euu_if=$(ip route get {{ .Values.euu.networkId }} | awk '{ print $5}')
+    euu_if=$(ip r g {{ .Values.euu.networkId }} | awk '{ print $(NF-2)}')
     sed -i '/subscribers:/,$d' /etc/gw-tester/enb.yml
     echo "subscribers:" >> /etc/gw-tester/enb.yml
-    euu_ip=$(ip route get {{ .Values.euu.networkId }} | awk '{ print $NF}')
+    euu_ip=$(ip r g {{ .Values.euu.networkId }} | awk '{ print $NF}')
     for i in $(seq 0 254); do
         if [ "10.0.3.$i" != "$euu_ip" ]; then
             format_num=$(printf "%03i" $i)
