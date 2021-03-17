@@ -13,12 +13,10 @@ set -o errexit
 set -o nounset
 
 function teardown {
-    if helm list -q | grep -q core-network; then
-        helm delete core-network
-    fi
-    kubectl delete -f https://raw.githubusercontent.com/gw-tester/v1/master/k8s/etcd.yml --wait=false --ignore-not-found
-    kubectl delete pod http-server --ignore-not-found
-    kubectl delete pod external-client --ignore-not-found
+    helm uninstall core-network || true
+    kubectl delete -f https://raw.githubusercontent.com/gw-tester/v1/master/k8s/etcd.yml --wait=false --ignore-not-found --wait
+    kubectl delete pod http-server --ignore-not-found --wait
+    kubectl delete pod external-client --ignore-not-found --wait
 }
 
 function install_deps {
@@ -34,20 +32,45 @@ function install_deps {
     fi
 }
 
-function get_ip_address {
+function get_ip_address_by_net {
     local app="$1"
     local net="$2"
 
     pod=$(kubectl get pods -l="app.kubernetes.io/name=$app" \
     -o jsonpath='{.items[0].metadata.name}')
-    if kubectl api-resources | grep NetworkAttachmentDefinition > /dev/null ; then
+    if [[ "$api_resources" == *"NetworkAttachmentDefinition"* ]]; then
         kubectl get pod "$pod" \
         -o jsonpath='{.metadata.annotations.k8s\.v1\.cni\.cncf\.io/networks-status}' \
         | jq -r ".[] | select(.name==\"lte-$net\").ips[0]"
-    else
+    elif [[ "$api_resources" == *"NetworkService"* ]]; then
+        if [[ "$net" == "eth0" ]]; then
+            net="nsm"
+        fi
+        kubectl exec "$pod" -c "$app" -- ip a | awk "/$net/{gsub(\"/.*\", \"\"); print \$2}" | tail -1
+    elif [[ "$api_resources" == *"DanmNet"* ]]; then
         kubectl get danmeps.danm.k8s.io \
         -o jsonpath="{range .items[?(@.spec.Pod == \"$pod\")]}{.spec.Interface}{end}" \
         | jq -r ". | select(.Name|test(\"$net\")).Address" | awk -F '/' '{ print $1 }'
+    fi
+}
+
+function get_ip_address_by_nic {
+    local app="$1"
+    local nic="$2"
+
+    pod=$(kubectl get pods -l="app.kubernetes.io/name=$app" \
+    -o jsonpath='{.items[0].metadata.name}')
+    if [[ "$api_resources" == *"NetworkAttachmentDefinition"* ]]; then
+        kubectl get pod "$pod" \
+        -o jsonpath='{.metadata.annotations.k8s\.v1\.cni\.cncf\.io/networks-status}' \
+        | jq -r ".[] | select(.interface==\"$nic\").ips[0]"
+    elif [[ "$api_resources" == *"NetworkService"* ]]; then
+        nic="nsm"
+        kubectl exec "$pod" -c "$app" -- ip a | awk "/$nic/{gsub(\"/.*\", \"\"); print \$2}" | tail -1
+    elif [[ "$api_resources" == *"DanmNet"* ]]; then
+        kubectl get danmeps.danm.k8s.io \
+        -o jsonpath="{range .items[?(@.spec.Pod == \"$pod\")]}{.spec.Interface}{end}" \
+        | jq -r ". | select(.Name|test(\"$nic\")).Address" | awk -F '/' '{ print $1 }'
     fi
 }
 
@@ -65,19 +88,69 @@ function _print_msg {
 }
 
 function assert_contains {
-    local input=$1
+    local pod=$1
     local expected=$2
+    local container=${3:-$pod}
 
-    if ! echo "$input" | grep -q "$expected"; then
-        error "Got $input expected $expected"
+    if [[ "$(kubectl logs "$pod" -c "$container")" != *"$expected"* ]]; then
+        error "$pod pod's logs don't contain '$expected'"
     fi
 }
 
+api_resources="$(kubectl api-resources)"
 teardown
 trap teardown EXIT
 
 info "Running installation process..."
 install_deps helm kubectl git
+
+info "Creation of HTTP external server"
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: http-server
+  annotations:
+    v1.multus-cni.io/default-network: lte-sgi
+    danm.k8s.io/interfaces: |
+      [
+        {"clusterNetwork":"lte-sgi"}
+      ]
+    ns.networkservicemesh.io/endpoints: |
+      {
+        "name": "lte-network",
+        "networkServices": [
+          {"link": "sgi", "labels": "app=http-server-sgi", "ipaddress": "10.0.1.0/24"}
+        ]
+      }
+  labels:
+    app.kubernetes.io/name: http-server
+    network: pdn
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: network
+                operator: In
+                values:
+                  - pdn
+          topologyKey: "kubernetes.io/hostname"
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: DoesNotExist
+  containers:
+    - image: httpd:2.4.46-alpine
+      name: http-server
+      securityContext:
+        capabilities:
+          add: ["NET_ADMIN"]
+EOF
 
 info "Creation of datastore"
 # TODO: Replace ETDC for Redis datastore
@@ -94,54 +167,11 @@ if ! helm list -q | grep -q core-network; then
     info "Installing GW Tester charts"
     helm install core-network /opt/gw-tester
 fi
-info "Waiting for P-GW services"
-kubectl rollout status deployment/core-network-pgw --timeout=3m
-
-init_containers=""
-if ! helm list -q | grep -q nsm; then
-    init_containers="
-  initContainers:
-    - name: configure
-      image: httpd:2.4.46-alpine
-      securityContext:
-        capabilities:
-          add: [\"NET_ADMIN\"]
-      command: [\"ip\", \"route\", \"add\", \"10.0.3.0/24\", \"via\", \"$(get_ip_address pgw sgi)\"]"
-fi
-
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Pod
-metadata:
-  name: http-server
-  annotations:
-    v1.multus-cni.io/default-network: lte-sgi
-    danm.k8s.io/interfaces: |
-      [
-        {"clusterNetwork":"lte-sgi"}
-      ]
-    ns.networkservicemesh.io: lte-network/sgi0?link=sgi
-  labels:
-    app.kubernetes.io/name: http-server
-    network: pdn
-spec:
-  affinity:
-    podAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        - labelSelector:
-            matchExpressions:
-              - key: network
-                operator: In
-                values:
-                  - pdn
-          topologyKey: "kubernetes.io/hostname"
-$init_containers
-  containers:
-    - image: httpd:2.4.46-alpine
-      name: http-server
-EOF
 info "Waiting for all services"
 kubectl wait --for=condition=ready pods --all --timeout=3m
+
+info "Inject routes to existing http server"
+eval "kubectl exec http-server -- ip r a 10.0.3.0/24 via $(get_ip_address_by_net pgw sgi)"
 
 init_containers=""
 if ! helm list -q | grep -q nsm; then
@@ -152,20 +182,7 @@ if ! helm list -q | grep -q nsm; then
       securityContext:
         capabilities:
           add: [\"NET_ADMIN\"]
-      command: [\"ip\", \"route\", \"add\", \"10.0.1.0/24\", \"via\", \"$(get_ip_address enb euu)\"]"
-fi
-
-
-if kubectl api-resources | grep NetworkAttachmentDefinition; then
-    HTTP_SERVER_SGI_IP=$(kubectl get pod/http-server \
-    -o jsonpath='{.metadata.annotations.k8s\.v1\.cni\.cncf\.io/networks-status}' \
-    | jq -r '.[] | select(.name=="lte-sgi").ips[0]')
-elif helm list -q | grep -q nsm; then
-    HTTP_SERVER_SGI_IP=$(kubectl exec http-server -- ifconfig sgi0 | awk '/inet addr/{print substr($2,6)}')
-else
-    HTTP_SERVER_SGI_IP=$(kubectl get danmeps.danm.k8s.io \
-    -o jsonpath='{range .items[?(@.spec.Pod == "http-server")]}{.spec.Interface.Address}{end}' \
-    | awk -F '/' '{ print $1 }')
+      command: [\"ip\", \"route\", \"add\", \"10.0.1.0/24\", \"via\", \"$(get_ip_address_by_net enb euu)\"]"
 fi
 
 cat <<EOF | kubectl apply -f -
@@ -218,7 +235,7 @@ metadata:
 data:
   init.sh: |
     while true; do
-        curl -s --connect-timeout 5 ${HTTP_SERVER_SGI_IP} | sed -e 's/<[^>]*>//g'
+        curl -s --connect-timeout 5 $(get_ip_address_by_nic http-server eth0) | sed -e 's/<[^>]*>//g'
         sleep 30
     done
 EOF
@@ -227,7 +244,8 @@ kubectl wait --for=condition=ready pod external-client --timeout=3m
 sleep 10
 
 info "Running assertions"
-assert_contains "$(kubectl logs $(kubectl get pods -l=app.kubernetes.io/name=enb -o jsonpath='{.items[0].metadata.name}'))" "Successfully established tunnel for"
-assert_contains "$(kubectl logs http-server)" "resuming normal operations"
-assert_contains "$(kubectl logs http-server)" '"GET / HTTP/1.1" 200 45'
-assert_contains "$(kubectl logs external-client)" "It works!"
+enb_pod="$(kubectl get pods -l=app.kubernetes.io/name=enb -o jsonpath='{.items[0].metadata.name}')"
+assert_contains "$enb_pod" "Successfully established tunnel for" enb
+assert_contains http-server "resuming normal operations"
+assert_contains http-server '"GET / HTTP/1.1" 200 45'
+assert_contains external-client "It works!"

@@ -37,11 +37,11 @@ spec:
             {"clusterNetwork":"{{ .Values.s5c.name }}"},
             {"clusterNetwork":"{{ .Values.sgi.name }}"}
           ]
+        ns.networkservicemesh.io: lte-network/{{ .Values.sgi.interface }}?link=sgi
         ns.networkservicemesh.io/endpoints: |
           {
             "name": "lte-network",
             "networkServices": [
-              {"link": "sgi", "labels": "app=http-server-sgi", "ipaddress": "{{ .Values.sgi.networkId }}/{{ .Values.sgi.networkLength }}", "route": "{{ .Values.euu.networkId }}/{{ .Values.euu.networkLength }}"},
               {"link": "s5u", "labels": "app=pgw-s5u", "ipaddress": "{{ .Values.s5u.networkId }}/{{ .Values.s5u.networkLength }}"},
               {"link": "s5c", "labels": "app=pgw-s5c", "ipaddress": "{{ .Values.s5c.networkId }}/{{ .Values.s5c.networkLength }}"}
             ]
@@ -77,3 +77,20 @@ spec:
               value: "{{ .Values.sgi.subnet }}"
             - name: ETCD_URL
               value: "{{ .Values.etcd.url }}"
+          ports:
+            - name: liveness-port
+              containerPort: 8080
+              hostPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: liveness-port
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: liveness-port
+            initialDelaySeconds: 5
+            periodSeconds: 2
