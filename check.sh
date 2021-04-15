@@ -11,6 +11,9 @@
 set -o pipefail
 set -o errexit
 set -o nounset
+if [[ "${DEBUG:-false}" == "true" ]]; then
+    set -o xtrace
+fi
 
 function teardown {
     helm uninstall core-network || true
@@ -175,14 +178,16 @@ eval "kubectl exec http-server -- ip r a 10.0.3.0/24 via $(get_ip_address_by_net
 
 init_containers=""
 if ! helm list -q | grep -q nsm; then
-    init_containers="
+    init_containers=$(cat <<EOF
   initContainers:
     - name: configure
       image: electrocucaracha/curl:7.67.0-alpine3.11
       securityContext:
         capabilities:
-          add: [\"NET_ADMIN\"]
-      command: [\"ip\", \"route\", \"add\", \"10.0.1.0/24\", \"via\", \"$(get_ip_address_by_net enb euu)\"]"
+          add: ["NET_ADMIN"]
+      command: ["ip", "route", "add", "10.0.1.0/24", "via", "$(get_ip_address_by_net enb euu)"]
+EOF
+)
 fi
 
 cat <<EOF | kubectl apply -f -
